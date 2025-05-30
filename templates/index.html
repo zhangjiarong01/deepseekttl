@@ -2,29 +2,41 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <title>DeepSeek Chat Demo</title>
+  <title>DeepSeek Chat 连续对话</title>
   <style>
-    body { font-family: sans-serif; margin: 2em; }
+    body { font-family: sans-serif; margin: 20px; max-width: 800px; }
     textarea { width: 100%; height: 60px; margin: 10px 0; }
-    #reply { white-space: pre-wrap; margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px; }
+    #reply-box { margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px; }
+    .message { margin-bottom: 10px; }
+    .user { font-weight: bold; color: #2b78e4; }
+    .ai { color: #444; }
   </style>
 </head>
 <body>
-  <h2>🧠 DeepSeek Chat 演示</h2>
-  <label>AI性格设定：</label>
-  <textarea id="system_prompt">你是一个感性的AI，说话温柔，善于鼓励用户。</textarea>
-  
+  <h2>🤖 DeepSeek Chat 连续对话演示</h2>
+
+  <label>AI性格设定（首次输入生效）：</label>
+  <textarea id="system_prompt">你是一个温柔的心理咨询师，善于用鼓励性语言疏导情绪。</textarea>
+
   <label>用户提问：</label>
-  <textarea id="user_input">我最近很焦虑怎么办？</textarea>
+  <textarea id="user_input">我今天心情不好怎么办？</textarea>
 
   <button onclick="sendMessage()">发送</button>
+  <button onclick="resetChat()">🧹 清空对话</button>
+  
+  <div id="reply-box"></div>
 
-  <div id="reply">AI回复将显示在这里</div>
+  <div id="signal-box" style="margin-top: 20px;">
+  <label>反馈动态：</label>
+  <div id="pulse" style="width: 100px; height: 100px; background: red; border-radius: 50%; opacity: 0.7; transition: all 0.3s;"></div>
+  <div>频率: <span id="freq-val">-</span> | 强度: <span id="int-val">-</span></div>
+  </div>
 
   <script>
     async function sendMessage() {
       const system_prompt = document.getElementById('system_prompt').value;
       const user_input = document.getElementById('user_input').value;
+      if (!user_input.trim()) return;
 
       const response = await fetch('/chat', {
         method: 'POST',
@@ -33,7 +45,46 @@
       });
 
       const data = await response.json();
-      document.getElementById('reply').innerText = '💬 ' + data.reply;
+      const box = document.getElementById('reply-box');
+      box.innerHTML += `<div class="message user">🧍你：${user_input}</div>`;
+      box.innerHTML += `<div class="message ai">🤖 AI：${data.reply}</div>`;
+      document.getElementById('user_input').value = '';
+
+      // 动态动画更新
+      const freq = data.signal.frequency;
+      const intensity = data.signal.intensity;
+
+      document.getElementById('freq-val').innerText = freq;
+      document.getElementById('int-val').innerText = intensity;
+
+      const pulse = document.getElementById('pulse');
+      const scale = 1 + intensity;  // 强度控制缩放
+      const duration = 1 / (freq || 0.1);  // 频率控制节奏
+
+      // 动态生成 CSS 动画
+      pulse.style.animation = `pulseAnim ${duration}s infinite`;
+      pulse.style.transform = `scale(${scale})`;
+
+      // 创建动画 keyframe（只添加一次）
+      if (!document.getElementById('pulse-anim-style')) {
+        const style = document.createElement('style');
+        style.id = 'pulse-anim-style';
+        style.innerHTML = `
+          @keyframes pulseAnim {
+            0% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.2); }
+            100% { opacity: 0.5; transform: scale(1); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+    }
+
+    async function resetChat() {
+      await fetch('/reset', { method: 'POST' });
+      document.getElementById('reply-box').innerHTML = '';
+      alert("对话已清空！");
     }
   </script>
 </body>
