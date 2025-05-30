@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>DeepSeek Chat Demo</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    textarea { width: 100%; height: 60px; margin: 10px 0; }
+    #reply { white-space: pre-wrap; margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>🧠 DeepSeek Chat 演示</h2>
+  <label>AI性格设定：</label>
+  <textarea id="system_prompt">你是一个感性的AI，说话温柔，善于鼓励用户。</textarea>
+  
+  <label>用户提问：</label>
+  <textarea id="user_input">我最近很焦虑怎么办？</textarea>
+
+  <button onclick="sendMessage()">发送</button>
+
+  <div id="reply">AI回复将显示在这里</div>
+
+  <script>
+    async function sendMessage() {
+      const system_prompt = document.getElementById('system_prompt').value;
+      const user_input = document.getElementById('user_input').value;
+
+      const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system_prompt, user_input })
+      });
+
+      const data = await response.json();
+      document.getElementById('reply').innerText = '💬 ' + data.reply;
+    }
+  </script>
+</body>
+</html>
