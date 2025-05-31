@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>手部运动追踪</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <style>
+    #canvas {
+      position: absolute;
+      left: 0; top: 0;
+    }
+    video {
+      transform: scaleX(-1);
+    }
+    #info {
+      position: fixed;
+      top: 10px; left: 10px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      padding: 10px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <div id="info">⏱ 运动数: 0<br>频率: 0.0 次/秒</div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const info = document.getElementById('info');
+
+    let motionCount = 0;
+    let yHistory = [];
+    let prevDirection = null;
+    let peakReady = false;
+    let lastPeakValue = null;
+    let lastPeakType = null;
+    let startTime = null;
+
+    let motionData = { count: 0, frequency: 0 };
+
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
+    });
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+
+    hands.onResults(results => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#0f0', lineWidth: 2});
+
+        const h = canvas.height;
+        const yCenter = landmarks[0].y * h;
+        yHistory.push(yCenter);
+
+        if (!startTime) startTime = performance.now();
+
+        if (yHistory.length >= 3) {
+          const dy1 = yHistory.at(-2) - yHistory.at(-3);
+          const dy2 = yHistory.at(-1) - yHistory.at(-2);
+          const curDirection = dy2 < 0 ? 'up' : 'down';
+
+          const thumbY = landmarks[4].y * h;
+          const pinkyY = landmarks[20].y * h;
+          const palmWidth = Math.abs(thumbY - pinkyY);
+          const motionThreshold = palmWidth * 0.8;
+
+          if (prevDirection && curDirection !== prevDirection) {
+            const peakValue = yHistory.at(-2);
+            const peakType = curDirection === 'down' ? 'up_peak' : 'down_peak';
+
+            if (!peakReady) {
+              lastPeakValue = peakValue;
+              lastPeakType = peakType;
+              peakReady = true;
+            } else {
+              if (lastPeakType !== peakType) {
+                const delta = Math.abs(peakValue - lastPeakValue);
+                if (delta >= motionThreshold) {
+                  motionCount++;
+                  motionData.count = motionCount;
+                }
+                peakReady = false;
+              }
+            }
+            prevDirection = curDirection;
+          } else {
+            prevDirection = curDirection;
+          }
+        }
+
+        const elapsed = (performance.now() - startTime) / 1000;
+        motionData.frequency = (motionCount / elapsed).toFixed(2);
+        info.innerHTML = `⏱ 运动数: ${motionCount}<br>频率: ${motionData.frequency} 次/秒`;
+      }
+    });
+
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        await hands.send({image: video});
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+
+    // 提供外部获取运动数据的接口
+    window.motionTracker = {
+      getData: () => ({...motionData}),
+      reset: () => {
+        motionCount = 0;
+        yHistory = [];
+        startTime = performance.now();
+        motionData = { count: 0, frequency: 0 };
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>DeepSeek Chat 连续对话</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; max-width: 800px; }
+    textarea { width: 100%; height: 60px; margin: 10px 0; }
+    #reply-box { margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px; }
+    .message { margin-bottom: 10px; }
+    .user { font-weight: bold; color: #2b78e4; }
+    .ai { color: #444; }
+    #progress-box { margin-top: 20px; background: #eee; padding: 10px; border-radius: 8px; }
+    .bar-container { height: 20px; background: #ccc; border-radius: 10px; overflow: hidden; margin: 5px 0; }
+    .time-bar { background: #76c7c0; height: 100%; width: 0%; transition: width 0.5s; }
+    .count-bar { background: #f97a7a; height: 100%; width: 0%; transition: width 0.5s; }
+  </style>
+</head>
+<body>
+  <h2>🤖 DeepSeek Chat 连续对话演示</h2>
+
+  <label>AI性格设定（首次输入生效）：</label>
+  <textarea id="system_prompt">你是一个温柔的心理咨询师，善于用鼓励性语言疏导情绪。</textarea>
+
+  <label>用户提问：</label>
+  <textarea id="user_input">我今天心情不好怎么办？</textarea>
+
+  <button onclick="sendMessage()">发送</button>
+  <button onclick="resetChat()">🧹 清空对话</button>
+
+  <div id="reply-box"></div>
+
+  <div id="progress-box">
+    <div>⏱ 剩余时间：<span id="time-left">10</span> 秒</div>
+    <div class="bar-container"><div id="time-bar" class="time-bar"></div></div>
+
+    <div>💪 运动次数进度：<span id="count-label">0/10次</span></div>
+    <div class="bar-container"><div id="count-bar" class="count-bar"></div></div>
+    <div id="result-message" style="margin-top:10px; font-weight:bold;"></div>
+
+  </div>
+
+  <video id="video" width="320" height="240" autoplay muted style="transform: scaleX(-1);"></video>
+
+  <script>
+    const video = document.getElementById('video');
+    let motionCount = 0;
+    let motionData = { count: 0 };
+    let timeLimit = 10;
+    let targetCount = 10;
+    let yHistory = [], prevDirection = null, peakReady = false, lastPeakValue = null, lastPeakType = null, startTime = null;
+
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
+    });
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+    hands.onResults(results => {
+      if (results.multiHandLandmarks.length > 0) {
+        const h = video.videoHeight;
+        const landmarks = results.multiHandLandmarks[0];
+        const yCenter = landmarks[0].y * h;
+        yHistory.push(yCenter);
+        if (!startTime) startTime = performance.now();
+        if (yHistory.length >= 3) {
+          const dy1 = yHistory.at(-2) - yHistory.at(-3);
+          const dy2 = yHistory.at(-1) - yHistory.at(-2);
+          const curDirection = dy2 < 0 ? 'up' : 'down';
+          const thumbY = landmarks[4].y * h;
+          const pinkyY = landmarks[20].y * h;
+          const palmWidth = Math.abs(thumbY - pinkyY);
+          const motionThreshold = palmWidth * 0.8;
+          if (prevDirection && curDirection !== prevDirection) {
+            const peakValue = yHistory.at(-2);
+            const peakType = curDirection === 'down' ? 'up_peak' : 'down_peak';
+            if (!peakReady) {
+              lastPeakValue = peakValue;
+              lastPeakType = peakType;
+              peakReady = true;
+            } else {
+              if (lastPeakType !== peakType) {
+                const delta = Math.abs(peakValue - lastPeakValue);
+                if (delta >= motionThreshold) {
+                  motionCount++;
+                  motionData.count = motionCount;
+                  updateCountBar();
+                }
+                peakReady = false;
+              }
+            }
+            prevDirection = curDirection;
+          } else {
+            prevDirection = curDirection;
+          }
+        }
+      }
+    });
+
+    const camera = new Camera(video, {
+      onFrame: async () => await hands.send({image: video}),
+      width: 320, height: 240
+    });
+    camera.start();
+
+    let countdownInterval;
+    function startTimer() {
+      let current = timeLimit;
+      document.getElementById('time-left').innerText = current;
+      updateTimeBar(current);
+      clearInterval(countdownInterval);
+      countdownInterval = setInterval(() => {
+        current--;
+        document.getElementById('time-left').innerText = current;
+        updateTimeBar(current);
+        if (current <= 0) {
+          clearInterval(countdownInterval);
+          handleChallengeEnd(); // 👈 倒计时结束时调用
+        }
+      }, 1000);
+    }
+
+    function updateTimeBar(current) {
+      const percent = ((timeLimit - current) / timeLimit) * 100;
+      document.getElementById('time-bar').style.width = `${percent}%`;
+    }
+
+    function updateCountBar() {
+      const percent = (motionCount / targetCount) * 100;
+      document.getElementById('count-bar').style.width = `${percent}%`;
+      document.getElementById('count-label').innerText = `${motionCount}/${targetCount}次`;
+    }
+
+    window.motionTracker = {
+      getData: () => ({...motionData}),
+      reset: () => {
+        motionCount = 0;
+        yHistory = [];
+        motionData = { count: 0 };
+        document.getElementById('count-bar').style.width = '0%';
+        document.getElementById('count-label').innerText = `0/${targetCount}次`;
+      },
+      setTarget: (count, time) => {
+        targetCount = count;
+        timeLimit = time;
+        startTimer();
+      }
+    };
+
+    
+    async function sendMessage() {
+      const system_prompt = document.getElementById('system_prompt').value;
+      const user_input = document.getElementById('user_input').value;
+      if (!user_input.trim()) return;
+
+      const motion = window.motionTracker.getData();
+
+      const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system_prompt, user_input, motion_count: motion.count })
+      });
+
+      const data = await response.json();
+      const box = document.getElementById('reply-box');
+      box.innerHTML += `<div class="message user">🧍你：${user_input}</div>`;
+      box.innerHTML += `<div class="message ai">🤖 AI：${data.reply}</div>`;
+      document.getElementById('user_input').value = '';
+
+      const exampleTarget = data.target || { count: 10, time: 10 };
+      window.motionTracker.reset();
+      window.motionTracker.setTarget(exampleTarget.count, exampleTarget.time);
+    }
+
+    async function handleChallengeEnd() {
+    const system_prompt = document.getElementById('system_prompt').value;
+    const motion = window.motionTracker.getData();
+    const success = motion.count >= targetCount;
+
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_prompt,
+        user_input: '（系统自动提交挑战结果）',
+        motion_count: motion.count,
+        auto: true
+      })
+    });
+
+    const data = await response.json();  // ✅ 这一行是缺失的核心原因
+
+    const box = document.getElementById('reply-box');
+    box.innerHTML += `<div class="message user">⏱ 系统：挑战结束，已提交 ${motion.count} 次动作</div>`;
+    box.innerHTML += `<div class="message ai">🤖 AI：${data.reply}</div>`;
+
+    const resultBox = document.getElementById('result-message');
+    if (success) {
+      resultBox.innerText = `🎉 挑战成功：完成 ${motion.count}/${targetCount} 次`;
+      resultBox.style.color = 'green';
+    } else {
+      resultBox.innerText = `😢 挑战失败：仅完成 ${motion.count}/${targetCount} 次`;
+      resultBox.style.color = 'red';
+    }
+
+    const nextTarget = data.target || { count: 10, time: 10 };
+    window.motionTracker.reset();
+    window.motionTracker.setTarget(nextTarget.count, nextTarget.time);
+  }
+
+
+    async function resetChat() {
+      await fetch('/reset', { method: 'POST' });
+      document.getElementById('reply-box').innerHTML = '';
+      alert("对话已清空！");
+    }
+  </script>
+</body>
+</html>

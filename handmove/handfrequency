@@ -1,0 +1,127 @@
+import cv2
+import mediapipe as mp
+import time
+
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(static_image_mode=False,
+                       max_num_hands=1,
+                       min_detection_confidence=0.7,
+                       min_tracking_confidence=0.7)
+mp_drawing = mp.solutions.drawing_utils
+
+cap = cv2.VideoCapture(0)
+
+motion_count = 0
+start_time = time.time()
+
+# 状态追踪
+prev_direction = None
+last_peak_value = None
+last_peak_type = None
+peak_ready = False
+
+FIST_LEVEL = "tight"
+
+# 握拳判断（带强握拳）
+def get_fist_level(landmarks, hand_label, level="soft"):
+    # tip, pip, mcp for 4 fingers
+    fingers = [(8, 6, 5), (12, 10, 9), (16, 14, 13), (20, 18, 17)]
+    count = 0
+    for tip, pip, mcp in fingers:
+        tip_x = landmarks[tip].x
+        pip_x = landmarks[pip].x
+        mcp_x = landmarks[mcp].x
+
+        if hand_label == "Right":
+            if level == "tight":
+                if tip_x - mcp_x > 0.01:
+                    count += 2
+            elif level == "soft":
+                if tip_x - pip_x > 0.01:
+                    count += 1
+            elif level == "open":
+                if tip_x < pip_x:
+                    count += 1
+        else:  # Left hand, reverse x logic
+            if level == "tight":
+                if mcp_x - tip_x > 0.01:
+                    count += 2
+            elif level == "soft":
+                if pip_x - tip_x > 0.01:
+                    count += 1
+            elif level == "open":
+                if tip_x > pip_x:
+                    count += 1
+    return count >= 3
+
+y_history = []
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame = cv2.flip(frame, 1)
+    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(image_rgb)
+    image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+
+    h, w, _ = image.shape
+
+    if results.multi_hand_landmarks and results.multi_handedness:
+        hand_landmarks = results.multi_hand_landmarks[0]
+        hand_label = results.multi_handedness[0].classification[0].label
+        mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        if get_fist_level(hand_landmarks.landmark, hand_label, FIST_LEVEL):
+            y_center = int(hand_landmarks.landmark[0].y * h)
+            y_history.append(y_center)
+
+            if len(y_history) >= 3:
+                dy1 = y_history[-2] - y_history[-3]
+                dy2 = y_history[-1] - y_history[-2]
+                cur_direction = "up" if dy2 < 0 else "down"
+
+                thumb_tip_y = hand_landmarks.landmark[4].y * h
+                pinky_tip_y = hand_landmarks.landmark[20].y * h
+                palm_width = abs(thumb_tip_y - pinky_tip_y)
+                motion_threshold = palm_width * 0.8
+
+                if prev_direction and cur_direction != prev_direction:
+                    peak_value = y_history[-2]
+                    peak_type = "up_peak" if cur_direction == "down" else "down_peak"
+
+                    if not peak_ready:
+                        last_peak_value = peak_value
+                        last_peak_type = peak_type
+                        peak_ready = True
+                    else:
+                        if last_peak_type != peak_type:
+                            delta = abs(peak_value - last_peak_value)
+                            if delta >= motion_threshold:
+                                motion_count += 1  # 现在才是完整往返
+                            peak_ready = False
+                    prev_direction = cur_direction
+                else:
+                    prev_direction = cur_direction
+
+        else:
+            y_history = []
+            prev_direction = None
+            peak_ready = False
+
+    elapsed = time.time() - start_time
+    frequency = motion_count / elapsed * 60 if elapsed > 0 else 0
+
+    cv2.putText(image, f"Motion Count: {motion_count}", (30, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+    cv2.putText(image, f"Freq: {frequency:.1f} /min", (30, 90),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), 2)
+
+    cv2.imshow("Motion Tracker", image)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()

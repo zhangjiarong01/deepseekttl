@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live2D Demo</title>
+  <script src="https://unpkg.com/oh-my-live2d@latest"></script>
+  <style>
+    body {
+      background-color: #111;
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    #controls {
+      margin-top: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🧍 Live2D 模型演示</h2>
+  <div id="controls">
+    <button onclick="playMotion('tap_body')">💥 播放动作</button>
+    <button onclick="openMouth()">👄 张嘴</button>
+    <button onclick="closeMouth()">🔇 闭嘴</button>
+  </div>
+
+  <script>
+    let live2dModel = null;
+
+    OML2D.loadOml2d({
+      models: [
+        {
+          path: 'https://model.hacxy.cn/HK416-1-normal/model.json',
+          position: [0, 60],
+          scale: 0.08,
+          stageStyle: {
+            height: 480,
+            width: 300,
+            left: 'calc(50% - 150px)'
+          },
+          onLoad(model) {
+            live2dModel = model;
+            console.log("模型加载完成！");
+          }
+        }
+      ]
+    });
+
+    function playMotion(name) {
+      if (live2dModel) {
+        live2dModel.motion(name);
+      }
+    }
+
+    function openMouth() {
+      if (live2dModel) {
+        live2dModel.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', 1.0);
+      }
+    }
+
+    function closeMouth() {
+      if (live2dModel) {
+        live2dModel.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', 0.0);
+      }
+    }
+  </script>
+</body>
+</html>
