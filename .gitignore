@@ -1,0 +1,32 @@
+﻿# ========== Python Cache ==========
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ========== Virtual Environments ==========
+venv/
+env/
+
+# ========== OS and Editor Files ==========
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ========== Logs, Outputs, Media ==========
+*.log
+*.mp3
+*.wav
+output/
+
+# ========== Local Secrets ==========
+secrets/
+.local_only/
+config.json
+.env
+local_config.py
+
+# ========== Temporary Dev Files ==========
+*.bak
+*.tmp
